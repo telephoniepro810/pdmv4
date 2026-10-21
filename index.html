@@ -1,10 +1,9 @@
-
 <!DOCTYPE html>
 <html lang="fr">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>Dashboard PDM — Besoin et capacité en appels</title>
+<title>Dashboard PDM — Prévisions, charge et capacité</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
@@ -123,6 +122,31 @@
   .activity-toggle button[aria-pressed="true"] { background: #eff6ff; color: #1d4ed8; font-weight: 600; }
   .activity-toggle button:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
   .activity-settings { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+  .site-launch { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 16px; border: 1px solid #bfdbfe; border-radius: 8px; background: #eff6ff; color: #1e3a8a; text-align: left; }
+  .site-launch:hover { background: #dbeafe; border-color: #60a5fa; }
+  .site-launch:focus-visible, .site-dialog button:focus-visible, .site-table-scroll:focus-visible { outline: 2px solid #2563eb; outline-offset: 3px; }
+  .site-launch-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; font-size: 18px; font-weight: 600; }
+  .site-launch-total { font-size: 20px; font-weight: 600; }
+  .site-launch-hint { color: #475569; font-size: 12px; }
+  .site-dialog { width: 96vw; max-width: 1600px; max-height: 92vh; padding: 0; border: 1px solid #cbd5e1; border-radius: 12px; color: #111827; box-shadow: 0 20px 70px #0004; }
+  .site-dialog::backdrop { background: #0f172a88; }
+  .site-dialog-header { position: sticky; top: 0; z-index: 3; }
+  .site-dialog-header button { flex-shrink: 0; background: white; }
+  .site-summary { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 24px; padding: 12px 16px; background: #eff6ff; border-radius: 6px; }
+  .site-table-scroll { overflow-x: auto; border: 1px solid #e2e8f0; border-radius: 6px; }
+  .site-table { width: 100%; font-size: 12px; font-variant-numeric: tabular-nums; }
+  .site-table caption { padding: 10px 12px; text-align: left; color: #475569; }
+  .site-table th, .site-table td { padding: 10px 12px; white-space: nowrap; text-align: right; border-top: 1px solid #e2e8f0; }
+  .site-table thead th { font-weight: 600; background: #f1f5f9; }
+  .site-table th:first-child { position: sticky; left: 0; z-index: 1; text-align: left; background: white; font-weight: 600; border-right: 1px solid #e2e8f0; }
+  .site-table thead th:first-child { background: #f1f5f9; }
+  .site-table tbody tr:nth-child(even), .site-table tbody tr:nth-child(even) th { background: #f8fafc; }
+  .site-table tbody tr:hover, .site-table tbody tr:hover th { background: #eff6ff; }
+  .site-table .site-annual { font-weight: 600; color: #1d4ed8; background: #eff6ff; }
+  .site-table tfoot th, .site-table tfoot td { font-weight: 600; background: #dbeafe; border-top: 2px solid #93c5fd; }
+  .site-table tfoot th:first-child { background: #dbeafe; }
+  .site-table .site-empty { text-align: left; color: #64748b; }
+  @media (max-width: 640px) { .site-dialog .repartition-header { padding: 14px 12px; gap: 8px; } .site-dialog .repartition-content { padding: 12px; } .site-dialog h2 { font-size: 16px; } }
   @media (max-width: 640px) { .grid-cols-3 { grid-template-columns: 1fr; } #root > div { padding: 12px; } }
 </style>
 </head>
@@ -132,6 +156,8 @@
 const { useState, useMemo, useRef, useEffect } = React;
 
 const MOIS = ["Jan","Fev","Mar","Avr","Mai","Juin","Juil","Aout","Sept","Oct","Nov","Dec"];
+const MOIS_COMPLETS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+const SITES_PLATEFORMES = ['PTM', 'PTS', 'PTV'];
 const DR = Array.from({ length: 7 }, (_, i) => `DR${i + 1}`);
 const SITES = ['PTV', 'PTM', 'PTS', ...DR];
 const STATUTS = ['CDI', 'CDD', 'ALT'];
@@ -287,10 +313,10 @@ PE_LIST.forEach(({ key: pe }) => {
     INIT_FLUX[pe][key] = Array(12).fill(0);
   });
 });
-// Une répartition horaire automatique est calculée à partir de la charge reçue.
+// Les clés portent sur les prévisions d'appels, jamais sur la capacité.
 const positive = (v) => Number.isFinite(Number(v)) ? Math.max(0, Number(v)) : 0;
 const percentText = (v) => (v * 100).toLocaleString('fr-FR', { maximumFractionDigits: 2 });
-const INIT_REPARTITION_HEURES = Object.fromEntries(POPULATION_STATUTS.map(({ key }) => [key, Array(12).fill(null)]));
+const sommeComplete = (values) => values.some((v) => v === null) ? null : values.reduce((a, v) => a + v, 0);
 // Une part de flux positive dans la référence atteste la compétence de cette population.
 POPULATION_STATUTS.forEach(({ key }) => PE_LIST.forEach(({ key: pe }) => {
   if (INIT_FLUX[pe][key].some((v) => v > 0)) INIT_ELIG[key][pe] = 1;
@@ -320,106 +346,76 @@ PE_LIST.forEach(({ key: pe }) => {
   });
 });
 
-function calculerMois(i, effectifs, heures, presence, productivite, appels, elig, flux, repartitionHeures, modesPE = INIT_MODES_PE) {
-  const poolSite = Object.fromEntries(SITES.map((s) => [s, 0]));
-  const affecteSite = { ...poolSite }, chargeSite = { ...poolSite };
-  const poolPopulationStatut = {}, chargePopulation = {}, partsHeures = {}, heuresParPopulationPE = {};
-  const capaciteDisponibleParPE = {}, besoinHeures = {}, sitesEligiblesParPE = {}, typeParPE = {}, totalFlux = {};
-  // Les heures pilotent l'allocation ; les appels servent à la restitution.
-  // Ne jamais convertir le pool global avec une productivité moyenne.
-  const besoinAppels = {}, capaciteAppelsParPE = {}, deltaAppelsParPE = {};
-  const appelsParPopulationPE = {}, besoinAppelsPopulationPE = {};
-  const capaciteAppelsSite = { ...poolSite }, besoinAppelsSite = { ...poolSite };
-  const capaciteSiteIncomplete = { ...poolSite }, besoinSiteIncomplet = { ...poolSite };
-  const appelsManquants = [], productivitesManquantes = [], capacitesAppelsManquantes = [];
-  const fluxEffectif = {};
-  const donneesManquantes = [], fluxHorsCompetence = [];
-  POPULATION_STATUTS.forEach(({ key: ss, population, statut, site }) => {
-    const capacite = positive(effectifs[population][statut][i]) * positive(heures[statut][i]) * Math.min(1, positive(presence[statut][i]));
-    poolPopulationStatut[ss] = capacite;
-    poolSite[site] += capacite;
-  });
-  PE_LIST.forEach(({ key }) => {
-    const p = productivite[key][i];
-    const a = appels[key][i];
-    const appelsRenseignes = a !== '' && a !== null && a !== undefined && Number.isFinite(Number(a)) && Number(a) >= 0;
-    const productiviteValide = p !== '' && p !== null && p !== undefined && Number.isFinite(Number(p)) && Number(p) > 0;
-    const connu = appelsRenseignes && (Number(a) === 0 || productiviteValide);
-    besoinAppels[key] = appelsRenseignes ? Number(a) : null;
-    if (!appelsRenseignes) appelsManquants.push(key);
-    if (!productiviteValide) productivitesManquantes.push(key);
-    if (!connu) donneesManquantes.push(key);
-    besoinHeures[key] = connu && Number(a) > 0 ? Number(a) / Number(p) : 0;
-    capaciteDisponibleParPE[key] = 0;
-    totalFlux[key] = 0;
-    sitesEligiblesParPE[key] = SITES.filter((s) => POPULATION_STATUTS.some((row) => row.site === s && elig[row.key][key] === 1));
+function calculerMois(i, effectifs, heures, presence, productivite, appels, elig, flux, modesPE = INIT_MODES_PE) {
+  const besoinAppels = {}, besoinHeures = {}, totalFlux = {}, fluxEffectif = {}, typeParPE = {};
+  const appelsManquants = [], productivitesManquantes = [], fluxHorsCompetence = [];
+  const populations = {}, parPE = {}, parSite = {};
+  PE_LIST.forEach(({key}) => {
+    const a = appels[key][i], p = productivite[key][i];
+    const appelValide = a !== '' && a !== null && a !== undefined && Number.isFinite(Number(a)) && Number(a) >= 0;
+    const prodValide = positive(p) > 0;
+    besoinAppels[key] = appelValide ? Number(a) : null;
+    besoinHeures[key] = !appelValide ? null : Number(a) === 0 ? 0 : prodValide ? Number(a) / Number(p) : null;
+    if (!appelValide) appelsManquants.push(key);
+    if (!prodValide) productivitesManquantes.push(key);
     typeParPE[key] = modesPE[key] || INIT_MODES_PE[key];
     fluxEffectif[key] = {};
-    POPULATION_STATUTS.forEach(({ key: ss }) => {
-      const eligible = elig[ss][key] === 1;
-      const part = flux[key][ss][i];
-      fluxEffectif[key][ss] = eligible ? part : 0;
-      if (positive(part) > 0 && !eligible) fluxHorsCompetence.push(`${ss} / ${key}`);
-      totalFlux[key] += positive(fluxEffectif[key][ss]);
+    POPULATION_STATUTS.forEach(({key:ss}) => {
+      const part = positive(flux[key][ss][i]);
+      fluxEffectif[key][ss] = elig[ss][key] === 1 ? part : 0;
+      if (part > 0 && elig[ss][key] !== 1) fluxHorsCompetence.push(`${ss} / ${key}`);
     });
+    totalFlux[key] = sommeComplete(Object.values(fluxEffectif[key]));
   });
-  POPULATION_STATUTS.forEach(({ key: ss, site }) => {
-    const capacite = poolPopulationStatut[ss];
-    const charge = {};
-    PE_LIST.forEach(({ key }) => {
-      charge[key] = besoinHeures[key] * positive(fluxEffectif[key][ss]);
+  POPULATION_STATUTS.forEach(({key:ss, population, statut}) => {
+    const capacite = positive(effectifs[population][statut][i]) * positive(heures[statut][i]) * Math.min(1, positive(presence[statut][i]));
+    const lignes = {};
+    // L'attribution est indépendante des heures disponibles et de la productivité.
+    PE_LIST.forEach(({key}) => {
+      const part = fluxEffectif[key][ss];
+      // Appliquer exactement la clé saisie, même pendant un ajustement au-delà de 100 %.
+      // Le total et son écart à la prévision sont affichés ; aucune normalisation.
+      const attribues = part === 0 ? 0 : besoinAppels[key] === null ? null : besoinAppels[key] * part;
+      const charge = attribues === 0 ? 0 : attribues === null || productivitesManquantes.includes(key)
+        ? null : attribues / Number(productivite[key][i]);
+      lignes[key] = {attribues, charge};
     });
-    chargePopulation[ss] = charge;
-    const chargeTotale = Object.values(charge).reduce((a, v) => a + v, 0);
-    chargeSite[site] += chargeTotale;
-    const manuel = repartitionHeures[ss][i];
-    const partsAuto = Object.fromEntries(PE_LIST.map(({ key }) => [key, chargeTotale > 0 ? charge[key] / chargeTotale : 0]));
-    const totalManuel = manuel === null ? 0 : PE_LIST.reduce((total, { key }) => total + (elig[ss][key] === 1 ? positive(manuel[key]) : 0), 0);
-    const facteurManuel = totalManuel > 1 ? 1 / totalManuel : 1;
-    partsHeures[ss] = {};
-    heuresParPopulationPE[ss] = {};
-    appelsParPopulationPE[ss] = {};
-    besoinAppelsPopulationPE[ss] = {};
-    PE_LIST.forEach(({ key }) => {
-      const part = elig[ss][key] !== 1 ? 0 : manuel === null ? partsAuto[key] : positive(manuel[key]) * facteurManuel;
-      partsHeures[ss][key] = part;
-      const h = capacite * part;
-      heuresParPopulationPE[ss][key] = h;
-      capaciteDisponibleParPE[key] += h;
-      affecteSite[site] += h;
-      const volume = h === 0 ? 0 : productivitesManquantes.includes(key) ? null : h * Number(productivite[key][i]);
-      const partFlux = positive(fluxEffectif[key][ss]);
-      const besoin = partFlux === 0 ? 0 : besoinAppels[key] === null ? null : besoinAppels[key] * partFlux;
-      appelsParPopulationPE[ss][key] = volume;
-      besoinAppelsPopulationPE[ss][key] = besoin;
-      capaciteAppelsSite[site] += volume === null ? 0 : volume;
-      besoinAppelsSite[site] += besoin === null ? 0 : besoin;
-      if (volume === null) capaciteSiteIncomplete[site] = true;
-      if (besoin === null) besoinSiteIncomplet[site] = true;
-    });
+    const sommeLignes = (champ, mode) => sommeComplete(PE_LIST.filter(({key}) => !mode || typeParPE[key] === mode).map(({key}) => lignes[key][champ]));
+    const charge = sommeLignes('charge');
+    const chargeMono = sommeLignes('charge','MONO');
+    populations[ss] = {capacite, lignes, attribues: sommeLignes('attribues'), charge,
+      chargeMono, chargeMulti: sommeLignes('charge','MULTI'),
+      restantApresMono: chargeMono === null ? null : Math.max(0,capacite-chargeMono),
+      delta: charge === null ? null : charge-capacite,
+      libres: charge === null ? null : Math.max(0,capacite-charge),
+      deficit: charge === null ? null : Math.max(0,charge-capacite)};
   });
-  const capaciteTotale = Object.values(poolSite).reduce((a, v) => a + v, 0);
-  const capaciteAffectee = Object.values(capaciteDisponibleParPE).reduce((a, v) => a + v, 0);
-  const besoinTotal = Object.values(besoinHeures).reduce((a, v) => a + v, 0);
-  PE_LIST.forEach(({ key }) => {
-    const h = capaciteDisponibleParPE[key];
-    capaciteAppelsParPE[key] = h === 0 ? 0 : productivitesManquantes.includes(key) ? null : h * Number(productivite[key][i]);
-    if (capaciteAppelsParPE[key] === null) capacitesAppelsManquantes.push(key);
-    deltaAppelsParPE[key] = besoinAppels[key] === null || capaciteAppelsParPE[key] === null
-      ? null : capaciteAppelsParPE[key] - besoinAppels[key];
+  PE_LIST.forEach(({key}) => {
+    const lignes = POPULATION_STATUTS.map(({key:ss}) => populations[ss].lignes[key]);
+    const attribues = sommeComplete(lignes.map(l=>l.attribues));
+    parPE[key] = {prevision: besoinAppels[key], attribues,
+      nonRepartis: attribues === null || besoinAppels[key] === null ? null : Math.max(0,besoinAppels[key]-attribues),
+      ecartPrevision: attribues === null || besoinAppels[key] === null ? null : attribues-besoinAppels[key],
+      charge: sommeComplete(lignes.map(l=>l.charge))};
   });
-  const besoinTotalAppels = Object.values(besoinAppels).reduce((a, v) => a + (v === null ? 0 : v), 0);
-  const capaciteTotaleAppels = Object.values(capaciteAppelsParPE).reduce((a, v) => a + (v === null ? 0 : v), 0);
-  const deltaTotalAppels = appelsManquants.length || capacitesAppelsManquantes.length ? null : capaciteTotaleAppels - besoinTotalAppels;
-  const besoinNonRepartiAppels = PE_LIST.reduce((total, { key }) => total + positive(besoinAppels[key]) * Math.max(0, 1 - totalFlux[key]), 0);
-  return { poolSite, affecteSite, chargeSite, poolPopulationStatut, chargePopulation, partsHeures, heuresParPopulationPE,
-    capaciteDisponibleParPE, besoinHeures, sitesEligiblesParPE, typeParPE, totalFlux, donneesManquantes, fluxHorsCompetence,
-    fluxEffectif, besoinAppels, capaciteAppelsParPE, deltaAppelsParPE, appelsParPopulationPE, besoinAppelsPopulationPE,
-    capaciteAppelsSite, besoinAppelsSite, capaciteSiteIncomplete, besoinSiteIncomplet,
-    appelsManquants, productivitesManquantes, capacitesAppelsManquantes,
-    besoinTotalAppels, capaciteTotaleAppels, deltaTotalAppels, besoinNonRepartiAppels,
-    capaciteTotale, capaciteAffectee, capaciteNonAffectee: Math.max(0, capaciteTotale - capaciteAffectee),
-    besoinTotal, deltaNational: capaciteTotale - besoinTotal, deltaAffecte: capaciteAffectee - besoinTotal };
+  const sommer = (lignes) => Object.fromEntries(['capacite','attribues','charge','chargeMono','chargeMulti','restantApresMono','delta','libres','deficit']
+    .map(champ=>[champ,sommeComplete(lignes.map(l=>l[champ]))]));
+  SITES.forEach(site => {
+    const lignesSite = POPULATION_STATUTS.filter(r=>r.site===site).map(({key:ss})=>populations[ss]);
+    parSite[site] = {
+      ...sommer(lignesSite),
+      parPE: Object.fromEntries(PE_LIST.map(({key}) => [key, {
+        attribues: sommeComplete(lignesSite.map(p=>p.lignes[key].attribues)),
+      }])),
+    };
+  });
+  const national = sommer(Object.values(populations));
+  national.prevision = sommeComplete(Object.values(besoinAppels));
+  national.attribues = sommeComplete(Object.values(parPE).map(l=>l.attribues));
+  national.nonRepartis = sommeComplete(Object.values(parPE).map(l=>l.nonRepartis));
+  national.ecartPrevision = national.attribues === null || national.prevision === null ? null : national.attribues-national.prevision;
+  return {besoinAppels, besoinHeures, totalFlux, fluxEffectif, typeParPE, populations, parPE, parSite, national,
+    appelsManquants, productivitesManquantes, fluxHorsCompetence};
 }
 
 function ModeActivite({ pe, mode, onChange }) {
@@ -454,8 +450,10 @@ function PercentInput({ value, onChange, label, disabled = false }) {
 const num = (v) => (Number.isFinite(v) ? Math.round(v * 10) / 10 : 0);
 const fmt = (v) => num(v).toLocaleString('fr-FR');
 const fmtAppels = (v) => v === null || v === undefined || !Number.isFinite(Number(v)) ? '—' : Math.round(Number(v)).toLocaleString('fr-FR');
-const fmtDeltaAppels = (v) => v === null || !Number.isFinite(v) ? '—' : `${Math.round(v) > 0 ? '+' : ''}${fmtAppels(v)}`;
-const fmtHeures = (v) => v.toLocaleString('fr-FR', { maximumFractionDigits: 2 });
+const fmtEcartAppels = (v) => v === null || !Number.isFinite(v) ? '—' : `${Math.round(v) > 0 ? '+' : ''}${fmtAppels(v)}`;
+const fmtHeures = (v) => v === null || !Number.isFinite(v) ? '—' : v.toLocaleString('fr-FR', { maximumFractionDigits: 2 });
+const fmtDeltaHeures = (v) => v === null || !Number.isFinite(v) ? '—' : `${Math.round(v*100) > 0 ? '+' : ''}${fmtHeures(Math.round(v*100)/100)}`;
+const couleurDelta = (v) => v === null ? 'text-gray-500' : v > 1e-9 ? 'text-red-700' : 'text-green-700';
 
 function CellInput({ value, onChange, width = 44, allowEmpty = false, label, decimals = null }) {
   const valeurAffichee = value === '' || decimals === null ? value : Number(Number(value).toFixed(decimals));
@@ -483,6 +481,149 @@ function setAt(arr, i, v) {
   return copy;
 }
 
+function peDuSite(site, elig) {
+  const populations = POPULATION_STATUTS.filter(p => p.site === site);
+  return PE_LIST.filter(({key}) => populations.some(p => elig[p.key][key] === 1));
+}
+
+// Conversion de la capacité horaire selon la répartition automatique de l'ancienne maquette.
+// Les heures d'une population sont partagées entre ses PE au prorata de leur charge.
+function calculerCapacitesAppels(detail, productivite, mois) {
+  const populations = {};
+  POPULATION_STATUTS.forEach(({key:ss}) => {
+    const population = detail.populations[ss];
+    const parPE = Object.fromEntries(PE_LIST.map(({key}) => {
+      const charge = population.lignes[key].charge;
+      const heures = population.capacite === 0 || charge === 0 ? 0
+        : population.charge === null ? null
+        : population.capacite * charge / population.charge;
+      const appels = heures === 0 ? 0 : heures === null || positive(productivite[key][mois]) === 0
+        ? null : heures * Number(productivite[key][mois]);
+      return [key, {heures, appels}];
+    }));
+    populations[ss] = {
+      parPE,
+      heuresNonAffectees: population.capacite === 0 ? 0 : population.charge === null ? null
+        : population.charge === 0 ? population.capacite : 0,
+    };
+  });
+  const agreger = lignes => {
+    const parPE = Object.fromEntries(PE_LIST.map(({key}) => [key, {
+      heures: sommeComplete(lignes.map(p => p.parPE[key].heures)),
+      appels: sommeComplete(lignes.map(p => p.parPE[key].appels)),
+    }]));
+    return {
+      parPE,
+      totalAppels: sommeComplete(PE_LIST.map(({key}) => parPE[key].appels)),
+      heuresAffectees: sommeComplete(PE_LIST.map(({key}) => parPE[key].heures)),
+      heuresNonAffectees: sommeComplete(lignes.map(p => p.heuresNonAffectees)),
+    };
+  };
+  return {
+    populations,
+    national: agreger(Object.values(populations)),
+    parSite: Object.fromEntries(SITES.map(site => [site, agreger(POPULATION_STATUTS.filter(p => p.site === site).map(p => populations[p.key]))])),
+  };
+}
+
+function CapacitesAppels({ calculs12, elig, productivite }) {
+  const [perimetre, setPerimetre] = useState('national');
+  const pes = perimetre === 'national' ? PE_LIST : peDuSite(perimetre, elig);
+  const capacites = calculs12.map(d => perimetre === 'national' ? d.capacitesAppels.national : d.capacitesAppels.parSite[perimetre]);
+  return <section className="space-y-4" aria-labelledby="capacites-appels-titre">
+    <div className="activity-settings">
+      <h3 id="capacites-appels-titre" className="font-medium">Capacité mensuelle en appels — {SOURCE_BESOINS.annee}</h3>
+      <label>Périmètre : <select aria-label="Périmètre des capacités en appels" className="border rounded px-2 py-1"
+        value={perimetre} onChange={e => setPerimetre(e.target.value)}>
+        <option value="national">National — tous les sites</option>
+        {[...SITES_PLATEFORMES, ...DR].map(site => <option key={site} value={site}>{site}</option>)}
+      </select></label>
+    </div>
+    <div className="bg-blue-50 rounded p-3 space-y-1">
+      <p className="font-medium">Capacité en appels = heures affectées au PE × productivité du PE.</p>
+      <p className="text-xs">Les heures disponibles de chaque population (effectif × heures par personne × présence) sont réparties entre ses PE au prorata de leur charge. Chaque heure est comptée une seule fois.</p>
+      <p className="text-xs">Cette capacité dépend de la répartition du travail entre les PE. Elle peut dépasser les appels attribués si les effectifs permettent d’en traiter davantage.</p>
+    </div>
+    <div className="site-table-scroll" role="region" aria-label="Tableau des capacités mensuelles" tabIndex={0}>
+      <table className="site-table" aria-label="Capacités mensuelles en appels">
+        <thead><tr><th scope="col">PE</th>{MOIS_COMPLETS.map(m => <th key={m} scope="col">{m}</th>)}<th scope="col">Total annuel</th></tr></thead>
+        <tbody>{pes.map(({key,name}) => <tr key={key}>
+          <th scope="row">{name}</th>
+          {capacites.map((c,i) => <td key={i} title={`${fmtHeures(c.parPE[key].heures)} h affectées × ${fmtHeures(productivite[key][i])} appels/h`}>{fmtAppels(c.parPE[key].appels)}</td>)}
+          <td className="site-annual">{fmtAppels(sommeComplete(capacites.map(c => c.parPE[key].appels)))}</td>
+        </tr>)}</tbody>
+        <tfoot><tr><th scope="row">Capacité totale (appels)</th>{capacites.map((c,i) => <td key={i}>{fmtAppels(c.totalAppels)}</td>)}
+          <td>{fmtAppels(sommeComplete(capacites.map(c => c.totalAppels)))}</td></tr></tfoot>
+      </table>
+    </div>
+    <p className="text-xs text-gray-500">« — » : prévision ou productivité manquante empêchant le calcul. Les totaux sont calculés avant arrondi.</p>
+    {capacites.some(c => c.heuresNonAffectees === null || c.heuresNonAffectees > 0) && <p className="text-xs text-gray-500" role="status">
+      Heures disponibles non converties en appels, faute de charge répartie : {capacites.map((c,i) => `${MOIS[i]} : ${fmtHeures(c.heuresNonAffectees)} h`).join(' · ')}.
+    </p>}
+  </section>;
+}
+
+function SiteAppelsDialog({ site, ouvert, onFermer, calculs12, elig }) {
+  const dialogRef = useRef(null);
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (ouvert && !dialog.open) dialog.showModal();
+    else if (!ouvert && dialog.open) dialog.close();
+  }, [ouvert]);
+  const pes = peDuSite(site, elig);
+  const totauxMois = calculs12.map(d => d.parSite[site].attribues);
+  const totalAnnuel = sommeComplete(totauxMois);
+  const populations = POPULATIONS.filter(p => p.site === site).map(p => p.name).join(' · ');
+  return (
+    <dialog ref={dialogRef} id={`appels-${site}`} className="site-dialog"
+      aria-labelledby={`appels-${site}-titre`} aria-describedby={`appels-${site}-description`}
+      onCancel={onFermer} onClose={onFermer}>
+      <div className="repartition-header site-dialog-header">
+        <div>
+          <h2 id={`appels-${site}-titre`}>{site} — Appels attribués par PE</h2>
+          <p id={`appels-${site}-description`} className="text-xs text-gray-500">Janvier à décembre {SOURCE_BESOINS.annee} · Volumes d’appels à envoyer au site</p>
+        </div>
+        <button type="button" autoFocus className="border rounded px-3 py-2" aria-label={`Fermer la fenêtre ${site}`} onClick={onFermer}>Fermer ×</button>
+      </div>
+      <div className="repartition-content space-y-4">
+        <div className="site-summary">
+          <span><strong className="text-xl text-blue-700">{fmtAppels(totalAnnuel)}</strong> appels attribués sur l’année</span>
+          <span className="text-xs text-gray-500">{pes.length} PE · Tous statuts confondus : CDI, CDD et alternants</span>
+        </div>
+        <p className="text-xs text-gray-500">Populations du site : {populations}.</p>
+        <div className="site-table-scroll" role="region" aria-label={`Tableau mensuel des appels ${site}`} tabIndex={0}>
+          <table className="site-table" aria-label={`Appels attribués à ${site} par PE de janvier à décembre`}>
+            <caption>Appels attribués = prévision nationale du PE × somme des clés des populations compétentes de {site}.</caption>
+            <thead><tr>
+              <th scope="col">Point d’entrée (PE)</th>
+              {MOIS_COMPLETS.map(m => <th scope="col" key={m}>{m}</th>)}
+              <th scope="col" className="site-annual">Total annuel</th>
+            </tr></thead>
+            <tbody>
+              {pes.map(({key, name}) => {
+                const valeurs = calculs12.map(d => d.parSite[site].parPE[key].attribues);
+                return <tr key={key}>
+                  <th scope="row">{name}</th>
+                  {valeurs.map((v, i) => <td key={i}>{fmtAppels(v)}</td>)}
+                  <td className="site-annual">{fmtAppels(sommeComplete(valeurs))}</td>
+                </tr>;
+              })}
+              {pes.length === 0 && <tr><td colSpan={14} className="site-empty">Aucun PE habilité pour ce site. Renseignez ses compétences et ses clés de répartition.</td></tr>}
+            </tbody>
+            <tfoot><tr>
+              <th scope="row">Total {site} — appels</th>
+              {totauxMois.map((v, i) => <td key={i}>{fmtAppels(v)}</td>)}
+              <td>{fmtAppels(totalAnnuel)}</td>
+            </tr></tfoot>
+          </table>
+        </div>
+        <p className="text-xs text-gray-500">Les PE affichés correspondent aux compétences du site. Les volumes se recalculent avec les prévisions, les compétences et les clés de répartition. Pour ajuster les appels à envoyer, utilisez « Ouvrir les clés de répartition » dans la vue nationale.</p>
+        <p className="text-xs text-gray-500">0 = aucun appel attribué par les clés actuelles ; — = prévision manquante pour une part attribuée. Les appels sont affichés à l’entier près ; les totaux sont calculés avant arrondi.</p>
+      </div>
+    </dialog>
+  );
+}
+
 function Dashboard() {
   const [effectifs, setEffectifs] = useState(INIT_EFFECTIFS);
   const [heures, setHeures] = useState(INIT_HEURES);
@@ -491,7 +632,6 @@ function Dashboard() {
   const [appels, setAppels] = useState(INIT_APPELS);
   const [elig, setElig] = useState(INIT_ELIG);
   const [flux, setFlux] = useState(INIT_FLUX_EDITABLES);
-  const [repartitionHeures, setRepartitionHeures] = useState(INIT_REPARTITION_HEURES);
   const [modesPE, setModesPE] = useState(INIT_MODES_PE);
   const [peFlux, setPeFlux] = useState('SNT');
   const [repartitionOuverte, setRepartitionOuverte] = useState(false);
@@ -503,7 +643,6 @@ function Dashboard() {
     else if (!repartitionOuverte && dialog.open) dialog.close();
   }, [repartitionOuverte]);
   const [populationHeures, setPopulationHeures] = useState('PTV_MULTI_CDI');
-  const [erreurRepartition, setErreurRepartition] = useState('');
   const setFluxCell = (pe, ss, i, v) => {
     if (!cleModifiable(ss, pe, elig, modesPE)) return;
     if (positive(v) > 0 && elig[ss][pe] !== 1) setElig((p) => ({...p, [ss]: {...p[ss], [pe]: 1}}));
@@ -511,6 +650,7 @@ function Dashboard() {
   };
   const [moisIdx, setMoisIdx] = useState(0);
   const [ongletActif, setOngletActif] = useState('resultats');
+  const [siteOuvert, setSiteOuvert] = useState(null);
 
   const setEffCell = (population, statut, moisI, v) =>
     setEffectifs((p) => ({ ...p, [population]: { ...p[population], [statut]: setAt(p[population][statut], moisI, v) } }));
@@ -521,30 +661,19 @@ function Dashboard() {
   const toggleElig = (ss, pe) => setElig((p) => ({ ...p, [ss]: { ...p[ss], [pe]: p[ss][pe] ? 0 : 1 } }));
   const changerMode = (pe, mode) => {
     setModesPE((p) => ({...p, [pe]: mode}));
-    setErreurRepartition('');
   };
 
-  const calculs12 = useMemo(() => MOIS.map((m,i) => calculerMois(i,effectifs,heures,presence,productivite,appels,elig,flux,repartitionHeures,modesPE)),
-    [effectifs,heures,presence,productivite,appels,elig,flux,repartitionHeures,modesPE]);
+  const calculs12 = useMemo(() => MOIS.map((m,i) => {
+    const detail = calculerMois(i,effectifs,heures,presence,productivite,appels,elig,flux,modesPE);
+    return {...detail, capacitesAppels: calculerCapacitesAppels(detail, productivite, i)};
+  }),
+    [effectifs,heures,presence,productivite,appels,elig,flux,modesPE]);
   const detailMois = calculs12[moisIdx];
-  const synthese12 = calculs12.map((d,i) => ({mois:MOIS[i],capacite:d.capaciteTotaleAppels,besoin:d.besoinTotalAppels,delta:d.deltaTotalAppels,
-    capaciteIncomplete:d.capacitesAppelsManquantes.length > 0, besoinIncomplet:d.appelsManquants.length > 0}));
-  const setPartHeures = (ss, pe, i, valeur) => {
-    if (!cleModifiable(ss, pe, elig, modesPE)) return;
-    const parts = {...calculs12[i].partsHeures[ss],[pe]:valeur};
-    const total = Object.values(parts).reduce((a,v) => a+v,0);
-    // Tolérance limitée à l'arrondi d'affichage (4 décimales en pourcentage).
-    if (total > 1.0000005) {
-      setErreurRepartition(`${MOIS[i]} : total ${percentText(total)} %. Réduisez d'abord une autre part pour rester à 100 % maximum.`);
-      return;
-    }
-    if (total > 1) parts[pe] = Math.max(0, parts[pe]-(total-1));
-    if (positive(parts[pe]) > 0 && elig[ss][pe] !== 1) setElig((p) => ({...p, [ss]: {...p[ss], [pe]: 1}}));
-    setRepartitionHeures((p) => ({...p,[ss]:setAt(p[ss],i,parts)}));
-    setErreurRepartition('');
-  };
-
-  const maxAbs = Math.max(...synthese12.map((s) => Math.max(s.capacite, s.besoin)), 1);
+  const national = detailMois.national;
+  const populationDetail = detailMois.populations[populationHeures];
+  const peOrdonnes = ['MONO','MULTI'].flatMap(mode=>PE_LIST.filter(({key})=>modesPE[key]===mode));
+  const synthese12 = calculs12.map((d,i) => ({mois:MOIS[i], ...d.national}));
+  const maxAbs = Math.max(...synthese12.map(s=>Math.max(s.capacite,s.charge || 0)),1);
   const lignesFlux = (lignes) => lignes.map(({key:ss, site, name, statut, label}) => (
     <tr key={ss} className={statut === 'CDI' ? 'population-start' : ''}>
       <td>{site}</td>
@@ -558,34 +687,50 @@ function Dashboard() {
   return (
     <div className="max-w-6xl mx-auto p-4 text-sm space-y-6">
       <div>
-        <h2 className="text-lg font-medium mb-1">Dashboard PDM — besoin et capacité attribuée en appels, 2026 ({PE_LIST.length} PE)</h2>
-        <p className="text-gray-500 text-xs">Effectifs → Heures disponibles → Répartition entre les PE → Heures attribuées × Productivité du PE (appels/h) = Capacité attribuée en appels.</p>
-        <p className="text-gray-500 text-xs">Monosite : ajustez les populations cochées. Multisite : ouvrez la répartition aux autres populations. Les DR restent modifiables dans les deux modes, avec des clés initiales à 0.</p>
+        <h2 className="text-lg font-medium mb-1">Dashboard PDM — prévisions d’appels, charge et capacité, 2026 ({PE_LIST.length} PE)</h2>
+        <p className="text-gray-500 text-xs">Prévision d’appels × Clé de répartition = Appels attribués. Appels attribués ÷ Productivité du PE = Charge prévue en heures.</p>
+        <p className="text-gray-500 text-xs">Capacité en appels = heures affectées au PE × productivité. Les heures disponibles des effectifs restent indépendantes des clés.</p>
       </div>
 
+      <section aria-labelledby="appels-sites-titre">
+        <h3 id="appels-sites-titre" className="font-medium mb-2">Appels attribués par site — janvier à décembre {SOURCE_BESOINS.annee}</h3>
+        <div className="grid grid-cols-3 gap-3">
+          {SITES_PLATEFORMES.map(site => (
+            <button key={site} type="button" className="site-launch" aria-label={`Ouvrir la fenêtre ${site}`}
+              aria-haspopup="dialog" aria-controls={`appels-${site}`} onClick={() => setSiteOuvert(site)}>
+              <span className="site-launch-title"><span>{site}</span><span aria-hidden="true">↗</span></span>
+              <span><span className="site-launch-total">{fmtAppels(sommeComplete(calculs12.map(d => d.parSite[site].attribues)))}</span> appels / an</span>
+              <span className="site-launch-hint">{peDuSite(site, elig).length} PE · Voir les appels par PE et par mois</span>
+            </button>
+          ))}
+        </div>
+      </section>
+      {SITES_PLATEFORMES.map(site => <SiteAppelsDialog key={site} site={site} ouvert={siteOuvert === site}
+        onFermer={() => setSiteOuvert(null)} calculs12={calculs12} elig={elig} />)}
+
       <div>
-        <h3 className="font-medium mb-2">Vue nationale — Capacité attribuée et besoin en appels, 12 mois</h3>
+        <h3 className="font-medium mb-2">Vue nationale — charge attribuée et capacité disponible (heures), 12 mois</h3>
         <div className="space-y-1">
           {synthese12.map((s) => (
             <div key={s.mois} className="flex items-center gap-2">
               <span className="w-10 text-xs text-gray-500">{s.mois}</span>
               <div className="flex-1 flex gap-0.5 h-4">
-                <div className="bg-blue-400 rounded-sm" style={{ width: `${(s.capacite / maxAbs) * 100}%` }} title={`Capacité attribuée${s.capaciteIncomplete ? ' connue (partielle)' : ''} : ${fmtAppels(s.capacite)} appels`} />
+                <div className="bg-blue-400 rounded-sm" style={{ width: `${(s.capacite / maxAbs) * 100}%` }} title={`Capacité disponible : ${fmtHeures(s.capacite)} h`} />
               </div>
               <div className="flex-1 flex gap-0.5 h-4">
-                <div className="bg-yellow-400 rounded-sm" style={{ width: `${(s.besoin / maxAbs) * 100}%` }} title={`Besoin${s.besoinIncomplet ? ' connu (partiel)' : ''} : ${fmtAppels(s.besoin)} appels`} />
+                <div className="bg-yellow-400 rounded-sm" style={{ width: `${((s.charge || 0) / maxAbs) * 100}%` }} title={`Charge attribuée : ${fmtHeures(s.charge)} h`} />
               </div>
-              <span className={`w-20 text-right text-xs font-medium ${s.delta === null ? 'text-gray-500' : s.delta >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                {s.delta === null ? 'À compléter' : `${fmtDeltaAppels(s.delta)} appels`}
+              <span className={`w-20 text-right text-xs font-medium ${couleurDelta(s.delta)}`}>
+                {s.delta === null ? '—' : `${fmtDeltaHeures(s.delta)} h`}
               </span>
             </div>
           ))}
         </div>
         <div className="flex gap-4 mt-2 text-xs text-gray-500">
-          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 bg-blue-400 rounded-sm inline-block" />Capacité attribuée (appels)</span>
-          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 bg-yellow-400 rounded-sm inline-block" />Besoin (appels)</span>
-          <span className="flex items-center gap-1 text-green-700"><span className="w-2.5 h-2.5 bg-green-600 rounded-sm inline-block" />Delta positif</span>
-          <span className="flex items-center gap-1 text-red-700"><span className="w-2.5 h-2.5 bg-red-500 rounded-sm inline-block" />Delta négatif</span>
+          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 bg-blue-400 rounded-sm inline-block" />Capacité disponible (h)</span>
+          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 bg-yellow-400 rounded-sm inline-block" />Charge attribuée (h)</span>
+          <span className="text-red-700">Delta positif : surcharge</span>
+          <span className="text-green-700">Delta négatif : marge horaire</span>
         </div>
       </div>
 
@@ -598,28 +743,33 @@ function Dashboard() {
 
       <div className="grid grid-cols-3 gap-3">
         <div className="bg-gray-50 rounded-lg p-3">
-          <p className="text-xs text-gray-500">Capacité attribuée{detailMois.capacitesAppelsManquantes.length > 0 ? ' connue (partielle)' : ''} — {MOIS[moisIdx]}</p>
-          <p className="text-xl font-medium text-blue-600">{fmtAppels(detailMois.capaciteTotaleAppels)} appels</p>
+          <p className="text-xs text-gray-500">Prévision d’appels — {MOIS[moisIdx]}</p>
+          <p className="text-xl font-medium">{fmtAppels(national.prevision)} appels</p>
         </div>
         <div className="bg-gray-50 rounded-lg p-3">
-          <p className="text-xs text-gray-500">Besoin{detailMois.appelsManquants.length > 0 ? ' connu (partiel)' : ''} — {MOIS[moisIdx]}</p>
-          <p className="text-xl font-medium text-yellow-600">{fmtAppels(detailMois.besoinTotalAppels)} appels</p>
+          <p className="text-xs text-gray-500">Appels attribués par les clés — {MOIS[moisIdx]}</p>
+          <p className="text-xl font-medium text-blue-600">{fmtAppels(national.attribues)} appels</p>
+          <p className="text-xs text-gray-500">{fmtAppels(national.nonRepartis)} appels restent à répartir</p>
+          <p className="text-xs text-gray-500">Écart attribués − prévision : {fmtEcartAppels(national.ecartPrevision)} appels</p>
         </div>
-        <div className="bg-gray-50 rounded-lg p-3">
-          <p className="text-xs text-gray-500">Écart capacité attribuée − besoin — {MOIS[moisIdx]}</p>
-          <p className={`text-xl font-medium ${detailMois.deltaTotalAppels === null ? 'text-gray-500' : detailMois.deltaTotalAppels >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-            {detailMois.deltaTotalAppels === null ? 'À compléter' : `${fmtDeltaAppels(detailMois.deltaTotalAppels)} appels`}
-          </p>
+        <div className="bg-blue-50 rounded-lg p-3" aria-label="Capacité en appels du mois">
+          <p className="text-xs text-gray-500">Capacité en appels — {MOIS[moisIdx]}</p>
+          <p className="text-xl font-medium text-blue-700">{fmtAppels(detailMois.capacitesAppels.national.totalAppels)} appels</p>
+          <button type="button" className="text-xs text-blue-700" onClick={() => setOngletActif('capacites')}>Voir les capacités sur 12 mois</button>
         </div>
+      </div>
+      <div className="grid grid-cols-3 gap-3" aria-label="Bilan horaire">
+        <div className="bg-blue-50 rounded-lg p-3"><p className="text-xs text-gray-500">Capacité disponible des effectifs</p><p className="text-xl font-medium text-blue-700">{fmtHeures(national.capacite)} h</p></div>
+        <div className="bg-yellow-50 rounded-lg p-3"><p className="text-xs text-gray-500">Charge prévue des appels attribués</p><p className="text-xl font-medium text-yellow-700">{fmtHeures(national.charge)} h</p></div>
+        <div className="bg-gray-50 rounded-lg p-3"><p className="text-xs text-gray-500">Delta = charge attribuée − capacité</p><p className={`text-xl font-medium ${couleurDelta(national.delta)}`}>{fmtDeltaHeures(national.delta)} h</p></div>
       </div>
 
       <div className="bg-blue-50 rounded p-3 space-y-1">
-        <p><strong>Base de calcul :</strong> {fmtHeures(detailMois.capaciteTotale)} h disponibles · {fmtHeures(detailMois.capaciteAffectee)} h attribuées · {fmtHeures(detailMois.capaciteNonAffectee)} h non attribuées.</p>
-        <p className="text-xs">Chaque capacité est convertie avec la productivité de son PE pour le mois choisi. Les heures libres ne sont converties qu’après attribution à un PE. Un excédent sur un PE ne couvre pas automatiquement le déficit d’un autre.</p>
+        <p><strong>{fmtHeures(national.libres)} h encore disponibles</strong> dans les populations sous-chargées · <strong>{fmtHeures(national.deficit)} h manquantes</strong> dans les populations surchargées.</p>
+        <p className="text-xs">Chaque clé s’applique directement à la prévision d’appels du PE. Changer une clé modifie les appels attribués et leur charge horaire. La capacité des effectifs reste inchangée.</p>
         <p className="text-xs">Volumes affichés à l’appel près. Les calculs et les totaux conservent les décimales source ; de petits écarts d’arrondi entre les lignes affichées et leur total sont possibles.</p>
-        {detailMois.appelsManquants.length > 0 && <p className="text-yellow-700 text-xs">Besoins en appels à renseigner : {detailMois.appelsManquants.join(', ')}. Le total des besoins est partiel et l’écart national n’est pas calculé.</p>}
-        {detailMois.productivitesManquantes.length > 0 && <p className="text-yellow-700 text-xs">Productivité positive à renseigner : {detailMois.productivitesManquantes.join(', ')}. Les besoins saisis en appels restent comptés. La charge en heures et le calcul automatique des parts nécessitent une productivité ; une capacité horaire positive sans productivité est affichée « — » en appels.</p>}
-        {PE_LIST.some(({key}) => Math.abs(detailMois.totalFlux[key]-1)>0.000001) && <p className="text-yellow-700 text-xs">Répartition du flux à vérifier (total différent de 100 %) : {PE_LIST.filter(({key}) => Math.abs(detailMois.totalFlux[key]-1)>0.000001).map(({key}) => `${key} (${percentText(detailMois.totalFlux[key])} %)`).join(', ')}.</p>}
+        {detailMois.appelsManquants.length > 0 && <p className="text-yellow-700 text-xs">Prévisions d’appels à renseigner : {detailMois.appelsManquants.join(', ')}. Les résultats qui en dépendent sont affichés « — ».</p>}
+        {detailMois.productivitesManquantes.length > 0 && <p className="text-yellow-700 text-xs">Productivité positive à renseigner : {detailMois.productivitesManquantes.join(', ')}. Les appels attribués restent visibles ; leur charge horaire nécessite une productivité positive.</p>}
         {detailMois.fluxHorsCompetence.length > 0 && <p className="text-red-700 text-xs">{detailMois.fluxHorsCompetence.length} part(s) de flux hors compétence exclue(s). Vérifiez les onglets Flux et Compétences.</p>}
       </div>
 
@@ -630,6 +780,7 @@ function Dashboard() {
           ['resultats', 'Résultats par PE'],
           ['effectifs', 'Effectifs (matrice 12 mois)'],
           ['productivite', 'Besoins en appels / Productivité (12 mois)'],
+          ['capacites', 'Capacité en appels (12 mois)'],
           ['competences', 'Compétences (PE × population/statut)'],
         ].map(([id, label]) => (
           <button
@@ -642,71 +793,43 @@ function Dashboard() {
         ))}
       </div>
 
+      {ongletActif === 'capacites' && <CapacitesAppels calculs12={calculs12} elig={elig} productivite={productivite} />}
+
       {ongletActif === 'resultats' && (
         <div>
-          <p className="text-xs text-gray-400 mb-2">
-            Capacité attribuée (appels) = Σ (Effectif × Heures/pers × Présence × Part des heures du PE) × Productivité du PE.
-            Besoin = Appels prévus. Écart (appels) = Capacité attribuée − Besoin. La somme des heures attribuées reste limitée aux heures disponibles.
-          </p>
-          <div className="overflow-x-auto"><table className="border-collapse w-full" aria-label="Résultats par PE en appels">
-            <thead>
-              <tr className="text-gray-500">
-                <th className="text-left pb-1 pr-2 font-normal">PE</th>
-                <th className="pb-1 pr-2 font-normal">Besoin (appels)</th>
-                <th className="pb-1 pr-2 font-normal">Capacité attribuée (appels)</th>
-                <th className="pb-1 pr-2 font-normal">Écart (appels)</th>
-                <th className="pb-1 pr-2 font-normal">Productivité (appels/h)</th><th className="pb-1 pr-2 font-normal">Activité</th>
-                <th className="pb-1 pr-2 font-normal">Site(s) éligible(s)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {PE_LIST.map(({ key, name }) => {
-                const deltaInd = detailMois.deltaAppelsParPE[key];
-                return (
-                  <tr key={key} className="border-t border-gray-100">
-                    <td className="py-1 pr-2 font-medium">{name}</td>
-                    <td className="py-1 pr-2 text-right text-yellow-700">{fmtAppels(detailMois.besoinAppels[key])}</td>
-                    <td className="py-1 pr-2 text-right text-blue-700" title={`${fmtHeures(detailMois.capaciteDisponibleParPE[key])} h attribuées × productivité du PE`}>{fmtAppels(detailMois.capaciteAppelsParPE[key])}</td>
-                    <td className={`py-1 pr-2 text-right font-medium ${deltaInd === null ? 'text-gray-500' : deltaInd >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                      {fmtDeltaAppels(deltaInd)}
-                    </td>
-                    <td className="py-1 pr-2 text-right">{detailMois.productivitesManquantes.includes(key) ? '—' : Number(productivite[key][moisIdx]).toLocaleString('fr-FR', {maximumFractionDigits: 6})}</td>
-                    <td className="py-1 pr-2">
-                      <ModeActivite pe={key} mode={modesPE[key]} onChange={changerMode} />
-                    </td>
-                    <td className="py-1 pr-2 text-gray-500">{detailMois.sitesEligiblesParPE[key].join(', ') || '—'}</td>
-                  </tr>
-                );
-              })}
-              <tr className="border-t-2 bg-gray-50">
-                <th className="text-left py-2">Total{detailMois.deltaTotalAppels === null ? ' connu (partiel)' : ''}</th>
-                <td className="text-right pr-2 font-medium">{fmtAppels(detailMois.besoinTotalAppels)}</td>
-                <td className="text-right pr-2 font-medium">{fmtAppels(detailMois.capaciteTotaleAppels)}</td>
-                <td className="text-right pr-2 font-medium">{fmtDeltaAppels(detailMois.deltaTotalAppels)}</td>
-                <td colSpan={3} />
-              </tr>
+          <p className="text-xs text-gray-500 mb-2">Les PE monosite sont présentés en premier. Appels attribués = prévision × clés saisies. Charge prévue = appels attribués ÷ productivité.</p>
+          <div className="overflow-x-auto"><table className="border-collapse w-full text-xs" aria-label="Résultats par PE">
+            <thead><tr><th className="text-left">PE</th><th>Prévision (appels)</th><th>Attribués (appels)</th><th>Écart à la prévision (appels)</th><th>Charge prévue (h)</th><th>Activité</th></tr></thead>
+            <tbody>{peOrdonnes.map(({key,name}) => {
+              const d = detailMois.parPE[key];
+              return <tr key={key} className="border-t"><td className="py-2 pr-2 font-medium whitespace-nowrap">{name}</td>
+                <td className="text-right pr-2">{fmtAppels(d.prevision)}</td><td className="text-right pr-2 text-blue-700">{fmtAppels(d.attribues)}</td>
+                <td className="text-right pr-2">{fmtEcartAppels(d.ecartPrevision)}</td><td className="text-right pr-2">{fmtHeures(d.charge)}</td>
+                <td><ModeActivite pe={key} mode={modesPE[key]} onChange={changerMode} /></td></tr>;
+            })}
+              <tr className="border-t-2 bg-gray-50"><th className="text-left py-2">Total</th>
+                <td className="text-right pr-2">{fmtAppels(national.prevision)}</td><td className="text-right pr-2">{fmtAppels(national.attribues)}</td>
+                <td className="text-right pr-2">{fmtEcartAppels(national.ecartPrevision)}</td><td className="text-right pr-2">{fmtHeures(national.charge)}</td><td /></tr>
             </tbody>
           </table></div>
 
-          <h3 className="font-medium mt-4 mb-2">Synthèse par site — {MOIS[moisIdx]}</h3>
-          <p className="text-xs text-gray-500 mb-2">La capacité d’un site est la somme des appels attribués à ses PE. Le besoin reçu dépend des clés de flux. Besoin restant à répartir : {fmtAppels(detailMois.besoinNonRepartiAppels)} appels. Les clés de chaque PE doivent totaliser 100 % pour rapprocher les besoins par site du besoin national.</p>
-          <div className="overflow-x-auto"><table className="w-full text-xs" aria-label="Synthèse par site en appels"><thead><tr><th className="text-left">Site</th><th>Besoin reçu (appels)</th><th>Capacité attribuée (appels)</th><th>Écart (appels)</th><th>Heures non attribuées</th></tr></thead>
-            <tbody>{SITES.map((s) => {
-              const besoin = detailMois.besoinSiteIncomplet[s] ? null : detailMois.besoinAppelsSite[s];
-              const capacite = detailMois.capaciteSiteIncomplete[s] ? null : detailMois.capaciteAppelsSite[s];
-              return <tr key={s} className="border-t"><td>{s}</td><td className="text-right">{fmtAppels(besoin)}</td><td className="text-right">{fmtAppels(capacite)}</td><td className="text-right">{fmtDeltaAppels(besoin === null || capacite === null ? null : capacite-besoin)}</td><td className="text-right">{fmtHeures(Math.max(0,detailMois.poolSite[s]-detailMois.affecteSite[s]))} h</td></tr>;
-            })}</tbody>
+          <h3 className="font-medium mt-4 mb-2">Charge et capacité par site — {MOIS[moisIdx]}</h3>
+          <p className="text-xs text-gray-500 mb-2">Delta = charge attribuée − capacité. Positif : heures manquantes. Négatif : heures encore disponibles. Les heures libres et manquantes sont détaillées par population.</p>
+          <div className="overflow-x-auto"><table className="w-full text-xs" aria-label="Charge et capacité par site">
+            <thead><tr><th className="text-left">Site</th><th>Capacité (h)</th><th>Charge mono (h)</th><th>Disponible après mono (h)</th><th>Charge multi (h)</th><th>Charge totale (h)</th><th>Delta (h)</th><th>Heures libres</th><th>Heures manquantes</th></tr></thead>
+            <tbody>{SITES.map(s => {const d=detailMois.parSite[s];return <tr key={s} className="border-t">
+              <td className="py-2">{s}</td><td className="text-right">{fmtHeures(d.capacite)}</td><td className="text-right">{fmtHeures(d.chargeMono)}</td>
+              <td className="text-right">{fmtHeures(d.restantApresMono)}</td><td className="text-right">{fmtHeures(d.chargeMulti)}</td>
+              <td className="text-right">{fmtHeures(d.charge)}</td><td className={`text-right font-medium ${couleurDelta(d.delta)}`}>{fmtDeltaHeures(d.delta)}</td>
+              <td className="text-right">{fmtHeures(d.libres)}</td><td className="text-right text-red-700">{fmtHeures(d.deficit)}</td></tr>;})}</tbody>
           </table></div>
-          <details className="mt-4">
-            <summary className="font-medium">Capacités attribuées par site et par PE (appels)</summary>
-            <div className="overflow-x-auto"><table className="w-full text-xs" aria-label="Capacités en appels par site et PE">
-              <thead><tr><th className="text-left pr-2">PE</th>{SITES.map((s) => <th key={s}>{s}</th>)}<th>Total</th></tr></thead>
-              <tbody>{PE_LIST.map(({key,name}) => <tr key={key} className="border-t"><td className="pr-2 whitespace-nowrap">{name}</td>{SITES.map((s) => {
-                const volumes = POPULATION_STATUTS.filter(({site}) => site === s).map(({key:ss}) => detailMois.appelsParPopulationPE[ss][key]);
-                return <td key={s} className="text-right">{fmtAppels(volumes.includes(null) ? null : volumes.reduce((a,v) => a+v,0))}</td>;
-              })}<td className="text-right font-medium">{fmtAppels(detailMois.capaciteAppelsParPE[key])}</td></tr>)}</tbody>
-            </table></div>
-          </details>
+          <h3 className="font-medium mt-4 mb-2">Appels attribués par site et par PE</h3>
+          <div className="overflow-x-auto"><table className="w-full text-xs" aria-label="Appels attribués par site et PE">
+            <thead><tr><th className="text-left pr-2">PE</th>{SITES.map(s=><th key={s}>{s}</th>)}<th>Total attribué</th><th>Écart à la prévision</th></tr></thead>
+            <tbody>{peOrdonnes.map(({key,name})=><tr key={key} className="border-t"><td className="pr-2 py-1 whitespace-nowrap">{name}</td>
+              {SITES.map(s=><td key={s} className="text-right">{fmtAppels(detailMois.parSite[s].parPE[key].attribues)}</td>)}
+              <td className="text-right font-medium">{fmtAppels(detailMois.parPE[key].attribues)}</td><td className="text-right">{fmtEcartAppels(detailMois.parPE[key].ecartPrevision)}</td></tr>)}</tbody>
+          </table></div>
         </div>
       )}
 
@@ -716,58 +839,53 @@ function Dashboard() {
           <button className="border rounded px-3 py-2" onClick={() => setRepartitionOuverte(false)} aria-label="Fermer les répartitions">Fermer ×</button>
         </div>
         <div className="flex gap-2 border-b mb-2" role="tablist" aria-label="Type de répartition">
-          {[['flux','Clés de répartition du flux (%)'],['repartition','Répartition des heures (%)']].map(([key,label]) => <button key={key} role="tab" aria-selected={ongletRepartition===key} className={`px-3 py-2 ${ongletRepartition===key ? 'border-b-2 text-blue-700 font-medium' : 'text-gray-500'}`} onClick={() => setOngletRepartition(key)}>{label}</button>)}
+          {[['flux','Clés des prévisions d’appels (%)'],['repartition','Charge et capacité par population']].map(([key,label]) => <button key={key} role="tab" aria-selected={ongletRepartition===key} className={`px-3 py-2 ${ongletRepartition===key ? 'border-b-2 text-blue-700 font-medium' : 'text-gray-500'}`} onClick={() => setOngletRepartition(key)}>{label}</button>)}
         </div>
         <div className="repartition-content">
       {ongletRepartition === 'flux' && (
         <div className="space-y-4 overflow-x-auto">
           <div className="activity-settings">
-            <label>Point d’entrée : <select aria-label="PE des clés de répartition" className="border rounded px-2 py-1" value={peFlux} onChange={(e) => setPeFlux(e.target.value)}>{PE_LIST.map(({key,name}) => <option key={key} value={key}>{name}</option>)}</select></label>
+            <label>Point d’entrée : <select aria-label="PE des clés de répartition" className="border rounded px-2 py-1" value={peFlux} onChange={(e) => setPeFlux(e.target.value)}>{['MONO','MULTI'].map(mode=><optgroup key={mode} label={mode==='MONO' ? '1. Monosite' : '2. Multisite'}>{peOrdonnes.filter(({key})=>modesPE[key]===mode).map(({key,name}) => <option key={key} value={key}>{name}</option>)}</optgroup>)}</select></label>
             <ModeActivite pe={peFlux} mode={modesPE[peFlux]} onChange={changerMode} />
           </div>
           <div className="bg-blue-50 rounded p-3" role="status">
-            <p className="font-medium">{modesPE[peFlux] === 'MONO' ? 'Monosite — populations cochées modifiables' : 'Multisite — toutes les populations modifiables'}</p>
-            <p>{modesPE[peFlux] === 'MONO'
-              ? 'Ajustez librement les clés des populations cochées. Vous pouvez cocher une autre population pour l’inclure dans la répartition.'
-              : 'Ajustez les clés de toutes les populations. Saisir une part positive coche automatiquement la compétence pour inclure cette population dans les calculs.'}</p>
-            <p className="text-xs text-gray-500">Les DR restent ouverts à la saisie dans les deux modes et démarrent à 0. Une saisie positive active leur compétence. Changer de mode conserve les coches et les valeurs saisies.</p>
+            <p className="font-medium">Clés appliquées à la prévision d’appels</p>
+            <p>Exemple : 5 000 appels prévus × 30 % = 1 500 appels attribués à cette population.</p>
+            <p className="text-xs text-gray-500">Vous pouvez ajuster chaque clé librement. Les totaux et la charge se recalculent immédiatement, y compris si le total dépasse provisoirement 100 %. La capacité des effectifs reste indépendante.</p>
           </div>
           <table className="cles-table border-collapse text-xs" aria-label={`Clés mensuelles de ${PE_LIST.find((pe) => pe.key === peFlux).name}`}>
             <thead><tr><th className="text-left">Site</th><th className="text-left">Population</th><th className="text-left">Statut</th><th>Compétence</th>{MOIS.map((m) => <th key={m}>{m} (%)</th>)}</tr></thead>
             <tbody>
               {lignesFlux(POPULATION_STATUTS)}
-              <tr className="border-t bg-gray-50"><th colSpan={4} className="text-left">Total du PE — toutes populations compétentes</th>{calculs12.map((d,i) => <td key={i} className={`text-right ${Math.abs(d.totalFlux[peFlux]-1) > 0.000001 ? 'text-red-700' : 'text-green-700'}`}>{percentText(d.totalFlux[peFlux])} %</td>)}</tr>
+              <tr className="border-t bg-gray-50"><th colSpan={4} className="text-left">Total du PE — toutes populations compétentes</th>{calculs12.map((d,i) => <td key={i} className="text-right">{percentText(d.totalFlux[peFlux])} %</td>)}</tr>
               <tr><th colSpan={4} className="text-left">Écart à 100 % (+ manquant / − dépassement)</th>{calculs12.map((d,i) => <td key={i} className="text-right">{percentText(1-d.totalFlux[peFlux])} %</td>)}</tr>
+              <tr className="bg-gray-50"><th colSpan={4} className="text-left">Prévision (appels)</th>{calculs12.map((d,i)=><td key={i} className="text-right">{fmtAppels(d.parPE[peFlux].prevision)}</td>)}</tr>
+              <tr><th colSpan={4} className="text-left">Appels attribués par les clés</th>{calculs12.map((d,i)=><td key={i} className="text-right">{fmtAppels(d.parPE[peFlux].attribues)}</td>)}</tr>
+              <tr><th colSpan={4} className="text-left">Écart appels attribués − prévision</th>{calculs12.map((d,i)=><td key={i} className="text-right">{fmtEcartAppels(d.parPE[peFlux].ecartPrevision)}</td>)}</tr>
             </tbody>
           </table>
-          <p className="text-xs text-gray-500">Toutes les populations sont affichées. Le total des populations cochées doit atteindre 100 % chaque mois. Décocher une population conserve ses valeurs, mais les exclut des calculs. Les clés proposées au départ pour les PE monosite sont entièrement modifiables.</p>
+          <p className="text-xs text-gray-500">Les clés saisies sont appliquées telles quelles. Un total de 105 % représente 105 % de la prévision, sans blocage ni remise automatique à 100 %. Le total et l’écart restent visibles pendant vos ajustements. Décocher une population conserve sa clé, mais l’exclut des calculs.</p>
         </div>
       )}
 
       {ongletRepartition === 'repartition' && (
         <div className="space-y-4 overflow-x-auto">
-          <p>Par défaut, les heures disponibles d’une population sont partagées entre ses PE au prorata de leur charge reçue. Vous pouvez modifier les parts en monosite comme en multisite : le mode Monosite ouvre les populations cochées, le mode Multisite ouvre aussi les autres. Les DR restent modifiables dans les deux modes.</p>
-          <label>Population / statut : <select aria-label="Population des heures" className="border rounded px-2 py-1" value={populationHeures} onChange={(e) => {setPopulationHeures(e.target.value); setErreurRepartition('');}}>{POPULATION_STATUTS.map(({key,label}) => <option key={key} value={key}>{label}</option>)}</select></label>
-          <p className="text-xs text-gray-500">Modifier une case fixe la répartition de ce mois en mode manuel. Une part positive active la compétence si nécessaire. Le total ne peut pas dépasser 100 % : réduisez d’abord une autre part pour libérer des heures. Un total inférieur à 100 % laisse des heures non attribuées. Changer Monosite / Multisite conserve vos répartitions.</p>
-          {erreurRepartition && <p role="alert" className="text-red-700">{erreurRepartition}</p>}
-          <table className="border-collapse text-xs">
-            <thead><tr><th className="text-left pr-2">PE</th>{MOIS.map((m) => <th key={m} className="px-1">{m} (%)</th>)}</tr></thead>
-            <tbody>
-              <tr className="bg-gray-50"><th className="text-left">Mode</th>{MOIS.map((m,i) => <td key={m} className="text-center">{repartitionHeures[populationHeures][i] === null ? 'Auto' : <button className="text-blue-700" title={`Revenir au calcul automatique pour ${m}`} onClick={() => {setRepartitionHeures((p) => ({...p,[populationHeures]:setAt(p[populationHeures],i,null)}));setErreurRepartition('');}}>Manuel ↺ Auto</button>}</td>)}</tr>
-              {PE_LIST.map(({key,name}) => <tr key={key}><td className="pr-2 whitespace-nowrap">{name}</td>{MOIS.map((m,i) => <td key={m} className="px-1 py-0.5"><PercentInput value={calculs12[i].partsHeures[populationHeures][key]} disabled={!cleModifiable(populationHeures,key,elig,modesPE)} label={`${name}, ${m}, part des heures en %`} onChange={(v) => setPartHeures(populationHeures,key,i,v || 0)} /></td>)}</tr>)}
-              <tr className="border-t bg-gray-50"><th className="text-left">Total des heures réparties (%)</th>{calculs12.map((d,i) => <td key={i} className="text-right px-1">{percentText(Object.values(d.partsHeures[populationHeures]).reduce((a,v) => a+v,0))} %</td>)}</tr>
-              <tr><th className="text-left">Heures disponibles</th>{calculs12.map((d,i) => <td key={i} className="text-right px-1">{fmtHeures(d.poolPopulationStatut[populationHeures])}</td>)}</tr>
-              <tr><th className="text-left">Heures non attribuées</th>{calculs12.map((d,i) => <td key={i} className="text-right px-1">{fmtHeures(Math.max(0,d.poolPopulationStatut[populationHeures]-Object.values(d.heuresParPopulationPE[populationHeures]).reduce((a,v) => a+v,0)))}</td>)}</tr>
-            </tbody>
+          <p>Les heures de charge résultent des appels attribués et de la productivité. Ce bilan se recalcule à chaque modification des prévisions, des clés ou des effectifs.</p>
+          <label>Population / statut : <select aria-label="Population du bilan" className="border rounded px-2 py-1" value={populationHeures} onChange={(e) => setPopulationHeures(e.target.value)}>{POPULATION_STATUTS.map(({key,label}) => <option key={key} value={key}>{label}</option>)}</select></label>
+          <table className="w-full text-xs" aria-label="Bilan mensuel de la population">
+            <thead><tr><th className="text-left">Indicateur (h)</th>{MOIS.map(m=><th key={m}>{m}</th>)}</tr></thead>
+            <tbody>{[
+              ['capacite','Capacité disponible'],['chargeMono','1. Charge monosite'],['restantApresMono','Disponible après monosite'],
+              ['chargeMulti','2. Charge multisite'],['charge','Charge totale attribuée'],['delta','Delta : charge − capacité'],
+              ['libres','Heures encore libres'],['deficit','Heures manquantes']
+            ].map(([champ,label])=><tr key={champ} className="border-t"><th className="text-left py-2">{label}</th>{calculs12.map((d,i)=><td key={i} className={`text-right ${champ==='delta'?couleurDelta(d.populations[populationHeures][champ]):''}`}>{champ==='delta'?fmtDeltaHeures(d.populations[populationHeures][champ]):fmtHeures(d.populations[populationHeures][champ])}</td>)}</tr>)}</tbody>
           </table>
-          <h3>Détail — {MOIS[moisIdx]} 2026</h3>
-          <p className="text-xs text-gray-500">La capacité en appels de cette population utilise les heures attribuées et la productivité de chaque PE. Les heures restent visibles ici pour contrôler leur répartition.</p>
-          <table className="w-full text-xs" aria-label="Détail de la répartition en appels"><thead><tr><th className="text-left">PE</th><th>Flux reçu (%)</th><th>Besoin reçu (appels)</th><th>Part des heures (%)</th><th>Heures attribuées</th><th>Capacité attribuée (appels)</th><th>Écart (appels)</th></tr></thead>
-            <tbody>{PE_LIST.map(({key,name}) => {
-              const besoin = detailMois.besoinAppelsPopulationPE[populationHeures][key];
-              const capacite = detailMois.appelsParPopulationPE[populationHeures][key];
-              return <tr key={key} className="border-t"><td>{name}</td><td className="text-right">{detailMois.fluxEffectif[key][populationHeures] === null ? '—' : percentText(detailMois.fluxEffectif[key][populationHeures])}</td><td className="text-right">{fmtAppels(besoin)}</td><td className="text-right">{percentText(detailMois.partsHeures[populationHeures][key])}</td><td className="text-right">{fmtHeures(detailMois.heuresParPopulationPE[populationHeures][key])}</td><td className="text-right">{fmtAppels(capacite)}</td><td className="text-right">{fmtDeltaAppels(besoin === null || capacite === null ? null : capacite-besoin)}</td></tr>;
-            })}</tbody>
+          <h3>Détail des appels attribués — {MOIS[moisIdx]} 2026</h3>
+          <table className="w-full text-xs" aria-label="Détail de la charge par PE"><thead><tr><th className="text-left">PE</th><th>Activité</th><th>Clé de la prévision (%)</th><th>Appels attribués</th><th>Productivité (appels/h)</th><th>Charge (h)</th></tr></thead>
+            <tbody>{peOrdonnes.map(({key,name}) => {const d=populationDetail.lignes[key];return <tr key={key} className="border-t">
+              <td className="py-2">{name}</td><td>{modesPE[key]==='MONO'?'1. Monosite':'2. Multisite'}</td><td className="text-right">{percentText(detailMois.fluxEffectif[key][populationHeures])}</td>
+              <td className="text-right">{fmtAppels(d.attribues)}</td><td className="text-right">{detailMois.productivitesManquantes.includes(key)?'—':productivite[key][moisIdx]}</td>
+              <td className="text-right">{fmtHeures(d.charge)}</td></tr>;})}</tbody>
           </table>
         </div>
       )}
@@ -794,7 +912,7 @@ function Dashboard() {
                       <td className="pr-2 py-0.5 font-medium whitespace-nowrap">{POPULATION_STATUTS.find((row) => row.population === population && row.statut === st).label}</td>
                       {MOIS.map((m, i) => (
                         <td key={m} className="px-0.5 py-0.5">
-                          <CellInput value={effectifs[population][st][i]} onChange={(v) => setEffCell(population, st, i, v)} />
+                          <CellInput value={effectifs[population][st][i]} label={`${population}, ${st}, ${m}, effectif`} onChange={(v) => setEffCell(population, st, i, v)} />
                         </td>
                       ))}
                     </tr>
@@ -818,7 +936,7 @@ function Dashboard() {
                     <td className="pr-2 py-0.5 font-medium">{st}</td>
                     {MOIS.map((m, i) => (
                       <td key={m} className="px-0.5 py-0.5">
-                        <CellInput value={heures[st][i]} onChange={(v) => setHeuresCell(st, i, v)} />
+                        <CellInput value={heures[st][i]} label={`${st}, ${m}, heures par personne`} onChange={(v) => setHeuresCell(st, i, v)} />
                       </td>
                     ))}
                   </tr>
@@ -855,36 +973,31 @@ function Dashboard() {
       {ongletActif === 'productivite' && (
         <div className="space-y-4 overflow-x-auto">
           <div className="bg-blue-50 rounded p-3 space-y-1">
-            <p className="font-medium">Besoin = nombre d’appels prévus · Capacité attribuée = heures attribuées × productivité du PE</p>
-            <p>La productivité correspond au nombre d’appels traités par heure. Le besoin reste en appels lorsque la productivité change ; la charge en heures et la capacité en appels sont recalculées.</p>
-            <p className="text-xs text-gray-500">Volumes initiaux : {SOURCE_BESOINS.fichier}, onglet {SOURCE_BESOINS.feuille}, ligne « {SOURCE_BESOINS.serie} ». Pour partager les heures en mode automatique, la charge est calculée avec Appels ÷ Productivité × Part du flux.</p>
+            <p className="font-medium">Appels attribués = prévision × clé · Charge prévue (h) = appels attribués ÷ productivité</p>
+            <p>La productivité mesure le nombre d’appels traités par heure. Elle sert à convertir les appels attribués en charge horaire.</p>
+            <p className="text-xs text-gray-500">Modifiez les besoins directement dans le tableau ci-dessous. Consultez l’onglet « Capacité en appels (12 mois) » pour les volumes que les effectifs permettent de traiter.</p>
           </div>
           <div>
-            <p className="font-medium mb-1">Besoins mensuels (appels)</p>
+            <p className="font-medium mb-1">Besoins mensuels en appels — valeurs modifiables</p>
             <table className="border-collapse text-xs" aria-label="Besoins mensuels en appels">
               <thead><tr><th className="text-left pr-2 pb-1">PE</th>{MOIS.map((m) => <th key={m} className="px-1 pb-1">{m}</th>)}</tr></thead>
               <tbody>
                 {PE_LIST.map(({key,name}) => <tr key={key} className="border-t">
                   <td className="pr-2 py-1 font-medium whitespace-nowrap">{name}</td>
-                  {calculs12.map((d,i) => <td key={i} className="px-1 py-1 text-right text-yellow-700" title={d.appelsManquants.includes(key) ? 'Renseignez le nombre d’appels prévus.' : `${fmtAppels(d.besoinAppels[key])} appels prévus. La productivité ne modifie pas le volume du besoin.`}>
-                    {fmtAppels(d.besoinAppels[key])}
+                  {MOIS.map((m,i) => <td key={m} className="px-1 py-1">
+                    <CellInput value={appels[key][i]} decimals={0} allowEmpty label={`${name}, ${m}, nombre d’appels`} onChange={(v) => setAppelsCell(key, i, v)} width={88} />
                   </td>)}
                 </tr>)}
-                <tr className="border-t bg-gray-50"><th className="text-left pr-2 py-1">Total des besoins connus (appels)</th>{calculs12.map((d,i) => <td key={i} className="px-1 py-1 text-right font-medium">{fmtAppels(d.besoinTotalAppels)}{d.appelsManquants.length > 0 ? ' *' : ''}</td>)}</tr>
+                <tr className="border-t bg-gray-50"><th className="text-left pr-2 py-1">Prévision totale (appels)</th>{calculs12.map((d,i) => <td key={i} className="px-1 py-1 text-right font-medium">{fmtAppels(d.national.prevision)}</td>)}</tr>
               </tbody>
             </table>
           </div>
-          {calculs12.some((d) => d.appelsManquants.length > 0) && <p role="status" className="text-yellow-700 text-xs">Les cases « — » signalent des besoins en appels manquants. * : total partiel. Une productivité absente ou nulle ne retire pas du total un besoin en appels renseigné.</p>}
-          <div>
-            <p className="font-medium mb-1">Capacités attribuées mensuelles (appels)</p>
-            <table className="border-collapse text-xs" aria-label="Capacités mensuelles en appels">
-              <thead><tr><th className="text-left pr-2 pb-1">PE</th>{MOIS.map((m) => <th key={m} className="px-1 pb-1">{m}</th>)}</tr></thead>
-              <tbody>{PE_LIST.map(({key,name}) => <tr key={key} className="border-t"><td className="pr-2 py-1 font-medium whitespace-nowrap">{name}</td>{calculs12.map((d,i) => <td key={i} className="px-1 py-1 text-right text-blue-700">{fmtAppels(d.capaciteAppelsParPE[key])}</td>)}</tr>)}
-                <tr className="border-t bg-gray-50"><th className="text-left pr-2 py-1">Total des capacités connues (appels)</th>{calculs12.map((d,i) => <td key={i} className="px-1 py-1 text-right font-medium">{fmtAppels(d.capaciteTotaleAppels)}{d.capacitesAppelsManquantes.length > 0 ? ' *' : ''}</td>)}</tr>
-              </tbody>
-            </table>
-            <p className="text-xs text-gray-500">Capacité par PE = heures attribuées × productivité du mois. « — » : heures attribuées mais productivité non renseignée ou nulle. * : total partiel.</p>
-          </div>
+          {calculs12.some((d) => d.appelsManquants.length > 0) && <p role="status" className="text-yellow-700 text-xs">« — » : prévision manquante ou résultat incomplet. Une productivité absente ne masque pas les prévisions d’appels renseignées.</p>}
+          <details>
+            <summary className="text-xs text-gray-500">Source des besoins</summary>
+            <p className="text-xs text-gray-500">Source : {SOURCE_BESOINS.fichier} / {SOURCE_BESOINS.feuille}, série « {SOURCE_BESOINS.serie} », colonnes B à M, janvier à décembre {SOURCE_BESOINS.annee}. Les appels sont affichés sans décimale. Les calculs conservent la précision du fichier. AMHAUD est repris une seule fois, dans le bloc B222:M222.</p>
+            <p className="text-xs text-gray-500">Pour TLV EPI, TLV SPE2 et SPE2, le total annuel du classeur diffère d’un appel de la somme des mois. Les calculs de la maquette utilisent les valeurs mensuelles.</p>
+          </details>
           <div>
             <p className="font-medium mb-1">Productivité — nombre d’appels traités par heure</p>
             <table className="border-collapse text-xs" aria-label="Productivités en appels par heure">
@@ -908,39 +1021,14 @@ function Dashboard() {
               </tbody>
             </table>
           </div>
-          <details>
-            <summary className="font-medium mb-1">Besoins source en appels — valeurs modifiables</summary>
-            <p className="text-xs text-gray-500">Source : {SOURCE_BESOINS.fichier} / {SOURCE_BESOINS.feuille}, colonnes B à M, janvier à décembre {SOURCE_BESOINS.annee}. Les appels sont affichés sans décimale, comme dans Excel. Les calculs conservent la précision du fichier. AMHAUD est repris une seule fois, dans le bloc B222:M222.</p>
-            <p className="text-xs text-gray-500">Pour TLV EPI, TLV SPE2 et SPE2, le total annuel du classeur diffère d’un appel de la somme des mois. Les calculs de la maquette utilisent les valeurs mensuelles.</p>
-            <table className="border-collapse text-xs" aria-label="Besoins source en appels">
-              <thead>
-                <tr>
-                  <th className="text-left pr-2 pb-1 text-gray-500 font-normal">PE</th>
-                  {MOIS.map((m) => <th key={m} className="px-1 pb-1 text-gray-500 font-normal">{m}</th>)}
-                </tr>
-              </thead>
-              <tbody>
-                {PE_LIST.map(({ key, name }) => (
-                  <tr key={key}>
-                    <td className="pr-2 py-0.5 font-medium" title={`${SOURCE_BESOINS.feuille}!B${SOURCE_BESOINS.lignes[key]}:M${SOURCE_BESOINS.lignes[key]}`}>{name}</td>
-                    {MOIS.map((m, i) => (
-                      <td key={m} className="px-0.5 py-0.5">
-                        <CellInput value={appels[key][i]} decimals={0} allowEmpty label={`${name}, ${m}, nombre d’appels`} onChange={(v) => setAppelsCell(key, i, v)} width={88} />
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </details>
         </div>
       )}
 
       {ongletActif === 'competences' && (
         <div className="overflow-x-auto">
           <p className="text-xs text-gray-400 mb-2">
-            Les compétences indiquent les PE autorisés pour chaque population et statut. Une coche ne réserve aucune heure à elle seule : l’affectation dépend de la répartition du flux et des heures.
-            Les parts positives du classeur ont été ajoutées aux compétences initiales. Décocher un PE exclut son flux et ses heures ; les pourcentages saisis sont conservés. Une population cochée reste modifiable en monosite. En multisite et pour les DR, une nouvelle part positive active automatiquement la compétence. Changer de mode ne modifie ni les coches ni les répartitions.
+            Les compétences indiquent les PE autorisés pour chaque population et statut. Les appels reçus dépendent des clés de la prévision ; les heures de charge sont calculées avec la productivité.
+            Décocher un PE exclut ses appels de la population sans déplacer ses effectifs ; les clés saisies sont conservées. Les PE monosite sont affichés avant les multisites.
           </p>
           <table className="border-collapse text-xs">
             <thead>
@@ -955,15 +1043,15 @@ function Dashboard() {
                   <td className="pr-2 py-0.5 font-medium sticky left-0 bg-white whitespace-nowrap">{label}</td>
                   {PE_LIST.map(({ key }) => (
                     <td key={key} className="text-center px-1 py-0.5">
-                      <input type="checkbox" checked={elig[ss][key] === 1} onChange={() => toggleElig(ss, key)} />
+                      <input type="checkbox" aria-label={`${label}, compétence ${key}`} checked={elig[ss][key] === 1} onChange={() => toggleElig(ss, key)} />
                     </td>
                   ))}
                 </tr>
               ))}
               <tr className="border-t-2 border-gray-400 bg-blue-50">
-                <td className="pr-2 py-1 font-medium sticky left-0 bg-blue-50">Capacité attribuée (appels) — {MOIS[moisIdx]}</td>
+                <td className="pr-2 py-1 font-medium sticky left-0 bg-blue-50">Appels attribués — {MOIS[moisIdx]}</td>
                 {PE_LIST.map(({ key }) => (
-                  <td key={key} className="text-center px-1 py-1 font-medium text-blue-700">{fmtAppels(detailMois.capaciteAppelsParPE[key])}</td>
+                  <td key={key} className="text-center px-1 py-1 font-medium text-blue-700">{fmtAppels(detailMois.parPE[key].attribues)}</td>
                 ))}
               </tr>
               <tr className="bg-yellow-50">
@@ -973,11 +1061,8 @@ function Dashboard() {
                 ))}
               </tr>
               <tr>
-                <td className="pr-2 py-1 font-medium sticky left-0 bg-white">Écart (appels) — {MOIS[moisIdx]}</td>
-                {PE_LIST.map(({ key }) => {
-                  const d = detailMois.deltaAppelsParPE[key];
-                  return <td key={key} className={`text-center px-1 py-1 font-medium ${d === null ? 'text-gray-500' : d >= 0 ? 'text-green-700' : 'text-red-700'}`}>{fmtDeltaAppels(d)}</td>;
-                })}
+                <td className="pr-2 py-1 font-medium sticky left-0 bg-white">Charge prévue (h) — {MOIS[moisIdx]}</td>
+                {PE_LIST.map(({key})=><td key={key} className="text-center px-1 py-1">{fmtHeures(detailMois.parPE[key].charge)}</td>)}
               </tr>
             </tbody>
           </table>
